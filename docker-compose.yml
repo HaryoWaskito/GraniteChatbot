@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  granite-chatbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: granite-chatbot
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - Replicate__ApiToken=${REPLICATE_API_TOKEN}
+    restart: unless-stopped
+    networks:
+      - chatbot-network
+
+networks:
+  chatbot-network:
+    driver: bridge
