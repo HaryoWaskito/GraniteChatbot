@@ -1,7 +1,7 @@
-version: "3.8"
+version: '3.8'
 
 services:
-  # Granite Chatbot Application
+  # Granite Chatbot Application (no dependencies)
   granite-chatbot:
     build:
       context: .
@@ -15,7 +15,7 @@ services:
       - ASPNETCORE_URLS=http://+:8080
       - Replicate__ApiToken=${REPLICATE_API_TOKEN}
 
-  # Caddy Reverse Proxy with inline configuration
+  # Caddy Reverse Proxy (no dependencies, simpler command)
   caddy:
     image: caddy:2-alpine
     container_name: granite-caddy
@@ -26,37 +26,7 @@ services:
     volumes:
       - caddy_data:/data
       - caddy_config:/config
-      - ./logs:/var/log/caddy
-    environment:
-      - CADDY_CONFIG=|
-        {
-        email admin@granite-chatbot.my.id
-        }
-
-        granite-chatbot.my.id {
-        reverse_proxy localhost:8080
-
-        header {
-        X-Frame-Options DENY
-        X-Content-Type-Options nosniff
-        X-XSS-Protection "1; mode=block"
-        Referrer-Policy strict-origin-when-cross-origin
-        -Server
-        }
-
-        encode gzip
-
-        log {
-        output file /var/log/caddy/granite-chatbot.log
-        }
-        }
-
-        www.granite-chatbot.my.id {
-        redir https://granite-chatbot.my.id{uri} permanent
-        }
-    command: sh -c "echo \"$CADDY_CONFIG\" | caddy run --config /dev/stdin"
-    depends_on:
-      - granite-chatbot
+    command: caddy reverse-proxy --from granite-chatbot.my.id --to localhost:8080
 
 volumes:
   caddy_data:

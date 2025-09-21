@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Containerized deployment script with Caddy reverse proxy
+# Sequential container deployment script (fixes cgroup issues)
 # Usage: ./deploy.sh [your-replicate-token]
 
 set -e  # Exit on any error
@@ -9,7 +9,7 @@ APP_NAME="granite-chatbot"
 GITHUB_REPO="https://github.com/HaryoWaskito/GraniteChatbot.git"
 REPLICATE_TOKEN="$1"
 
-echo "🚀 Starting containerized deployment with Caddy reverse proxy..."
+echo "🚀 Starting sequential containerized deployment..."
 
 # Check if token is provided
 if [ -z "$REPLICATE_TOKEN" ]; then
@@ -18,27 +18,12 @@ if [ -z "$REPLICATE_TOKEN" ]; then
     exit 1
 fi
 
-# Check if podman-compose is available
-if ! command -v podman-compose &> /dev/null; then
-    echo "📦 Installing podman-compose..."
-    if command -v pip3 &> /dev/null; then
-        pip3 install podman-compose
-    elif command -v apt &> /dev/null; then
-        apt update && apt install -y python3-pip
-        pip3 install podman-compose
-    else
-        echo "❌ Please install podman-compose manually"
-        exit 1
-    fi
-fi
-
-# Stop existing containers
-echo "🛑 Stopping existing containers..."
-podman-compose down 2>/dev/null || true
+# Stop and remove existing containers
+echo "🛑 Cleaning up existing containers..."
 podman stop granite-caddy granite-chatbot 2>/dev/null || true
 podman rm granite-caddy granite-chatbot 2>/dev/null || true
 
-# Remove old images to force rebuild
+# Remove old images
 echo "🧹 Cleaning up old images..."
 podman rmi $APP_NAME 2>/dev/null || true
 
@@ -53,65 +38,87 @@ else
     cd $APP_NAME
 fi
 
-# Create .env file for docker-compose
-echo "📝 Creating environment configuration..."
-cat > .env << EOF
-REPLICATE_API_TOKEN=$REPLICATE_TOKEN
-EOF
+# Build the chatbot image
+echo "🔨 Building chatbot container..."
+podman build -t $APP_NAME .
 
-# Create logs directory
-mkdir -p logs
-chmod 755 logs
+# Start the chatbot container first
+echo "🏃 Starting chatbot container..."
+podman run -d \
+    --name granite-chatbot \
+    -p 8080:8080 \
+    -e "Replicate__ApiToken=$REPLICATE_TOKEN" \
+    -e "ASPNETCORE_ENVIRONMENT=Production" \
+    -e "ASPNETCORE_URLS=http://+:8080" \
+    --restart=always \
+    $APP_NAME
 
-# Build and start containers
-echo "🔨 Building and starting containers..."
-podman-compose up -d --build
-
-# Wait for services to start
-echo "⏳ Waiting for services to start..."
+# Wait for chatbot to be ready
+echo "⏳ Waiting for chatbot to start..."
 sleep 10
 
-# Check if containers are running
+# Check if chatbot is running
+if ! podman ps | grep -q granite-chatbot; then
+    echo "❌ Chatbot container failed to start. Checking logs..."
+    podman logs granite-chatbot
+    exit 1
+fi
+
+# Test if chatbot is responding
+echo "🧪 Testing chatbot connectivity..."
+if curl -f http://localhost:8080 > /dev/null 2>&1; then
+    echo "✅ Chatbot is responding on port 8080"
+else
+    echo "⚠️ Chatbot might still be starting up..."
+fi
+
+# Start Caddy container
+echo "🔧 Starting Caddy reverse proxy..."
+podman run -d \
+    --name granite-caddy \
+    -p 80:80 -p 443:443 \
+    -v caddy_data:/data \
+    -v caddy_config:/config \
+    --restart=always \
+    caddy:2-alpine \
+    caddy reverse-proxy --from granite-chatbot.my.id --to localhost:8080
+
+# Wait for Caddy to start
+sleep 5
+
+# Check final status
+echo "📊 Final container status:"
+podman ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
 if podman ps | grep -q granite-caddy && podman ps | grep -q granite-chatbot; then
-    echo "✅ Deployment successful!"
     echo ""
-    echo "🌐 Your chatbot is now available at:"
-    echo "   🔗 https://granite-chatbot.my.id"
-    echo "   🔗 http://granite-chatbot.my.id (will redirect to HTTPS)"
+    echo "🎉 Deployment successful!"
     echo ""
-    echo "📊 Container status:"
-    podman ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+    echo "🌐 Your chatbot is available at:"
+    echo "   🔗 Direct: http://103.127.134.226:8080"
+    echo "   🔗 Domain: http://granite-chatbot.my.id (via Caddy)"
+    echo "   🔒 HTTPS: https://granite-chatbot.my.id (auto-SSL)"
     echo ""
-    
-    # Test local connectivity
-    echo "🧪 Testing local connectivity..."
-    sleep 3
-    if curl -f http://localhost:80 > /dev/null 2>&1; then
-        echo "✅ Caddy is responding on port 80"
-    else
-        echo "⚠️  Caddy might still be starting up"
-    fi
-    
+    echo "📊 Service Status:"
+    echo "   ✅ Chatbot: Running on port 8080"
+    echo "   ✅ Caddy: Running on ports 80/443"
+    echo ""
     echo "🔍 SSL certificate will be automatically obtained by Caddy"
-    echo "   (This may take a few minutes for first-time setup)"
     
 else
-    echo "❌ Deployment failed. Checking container logs..."
-    echo ""
-    echo "=== Caddy Logs ==="
-    podman logs granite-caddy 2>/dev/null || echo "Caddy container not found"
+    echo "❌ Some containers failed to start. Checking logs..."
     echo ""
     echo "=== Chatbot Logs ==="
     podman logs granite-chatbot 2>/dev/null || echo "Chatbot container not found"
+    echo ""
+    echo "=== Caddy Logs ==="
+    podman logs granite-caddy 2>/dev/null || echo "Caddy container not found"
     exit 1
 fi
 
 echo ""
-echo "🎉 Containerized deployment complete!"
-echo ""
 echo "📝 Useful commands:"
-echo "   Check status:     podman-compose ps"
-echo "   View logs:        podman-compose logs -f"
-echo "   Restart services: podman-compose restart"
-echo "   Stop services:    podman-compose down"
-echo "   Update deployment: git pull && podman-compose up -d --build"
+echo "   Check status: podman ps"
+echo "   Chatbot logs: podman logs granite-chatbot"
+echo "   Caddy logs:   podman logs granite-caddy"
+echo "   Restart:      ./deploy.sh $REPLICATE_TOKEN"
