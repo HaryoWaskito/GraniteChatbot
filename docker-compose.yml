@@ -1,7 +1,21 @@
-version: "3.8"
+version: '3.8'
 
 services:
-  # Caddy Reverse Proxy
+  # Granite Chatbot Application
+  granite-chatbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: granite-chatbot
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - Replicate__ApiToken=${REPLICATE_API_TOKEN}
+
+  # Caddy Reverse Proxy with inline configuration
   caddy:
     image: caddy:2-alpine
     container_name: granite-caddy
@@ -10,34 +24,39 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
       - caddy_config:/config
       - ./logs:/var/log/caddy
+    environment:
+      - CADDY_CONFIG=|
+        {
+          email admin@granite-chatbot.my.id
+        }
+        
+        granite-chatbot.my.id {
+          reverse_proxy localhost:8080
+          
+          header {
+            X-Frame-Options DENY
+            X-Content-Type-Options nosniff
+            X-XSS-Protection "1; mode=block"
+            Referrer-Policy strict-origin-when-cross-origin
+            -Server
+          }
+          
+          encode gzip
+          
+          log {
+            output file /var/log/caddy/granite-chatbot.log
+          }
+        }
+        
+        www.granite-chatbot.my.id {
+          redir https://granite-chatbot.my.id{uri} permanent
+        }
+    command: sh -c "echo \"$CADDY_CONFIG\" | caddy run --config /dev/stdin"
     depends_on:
       - granite-chatbot
-    networks:
-      - chatbot-network
-
-  # Granite Chatbot Application
-  granite-chatbot:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: granite-chatbot
-    restart: unless-stopped
-    expose:
-      - "8080" # Only expose to internal network, not to host
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Production
-      - ASPNETCORE_URLS=http://+:8080
-      - Replicate__ApiToken=${REPLICATE_API_TOKEN}
-    networks:
-      - chatbot-network
-
-networks:
-  chatbot-network:
-    driver: bridge
 
 volumes:
   caddy_data:
