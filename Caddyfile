@@ -1,0 +1,39 @@
+# Caddyfile for containerized setup
+granite-chatbot.my.id {
+    # Reverse proxy to chatbot container
+    reverse_proxy granite-chatbot:8080
+    
+    # Security headers
+    header {
+        X-Frame-Options DENY
+        X-Content-Type-Options nosniff
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy strict-origin-when-cross-origin
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        -Server
+    }
+    
+    # Enable compression
+    encode gzip
+    
+    # Logging
+    log {
+        output file /var/log/caddy/granite-chatbot.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+        format single_field common_log
+        level INFO
+    }
+}
+
+# Redirect www to non-www
+www.granite-chatbot.my.id {
+    redir https://granite-chatbot.my.id{uri} permanent
+}
+
+# Health check endpoint (optional)
+health.granite-chatbot.my.id {
+    respond /health 200
+    respond "Service is healthy"
+}

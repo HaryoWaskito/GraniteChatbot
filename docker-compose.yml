@@ -1,22 +1,46 @@
-version: '3.8'
+version: "3.8"
 
 services:
+  # Caddy Reverse Proxy
+  caddy:
+    image: caddy:2-alpine
+    container_name: granite-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./logs:/var/log/caddy
+    depends_on:
+      - granite-chatbot
+    networks:
+      - chatbot-network
+
+  # Granite Chatbot Application
   granite-chatbot:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: granite-chatbot
-    ports:
-      - "8080:8080"
-      - "8443:8443"
+    restart: unless-stopped
+    expose:
+      - "8080" # Only expose to internal network, not to host
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
       - Replicate__ApiToken=${REPLICATE_API_TOKEN}
-    restart: unless-stopped
     networks:
       - chatbot-network
 
 networks:
   chatbot-network:
     driver: bridge
+
+volumes:
+  caddy_data:
+    external: false
+  caddy_config:
+    external: false
