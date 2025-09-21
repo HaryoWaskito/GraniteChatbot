@@ -15,14 +15,14 @@ A beautiful AI chatbot powered by IBM Granite model via Replicate.com
 1. **SSH to your VPS**
 2. **Run this single command:**
    ```bash
-   curl -sSL https://raw.githubusercontent.com/yourusername/GraniteChatbot/main/deploy.sh | bash -s YOUR_REPLICATE_TOKEN
+   curl -sSL https://raw.githubusercontent.com/HaryoWaskito/GraniteChatbot/main/deploy.sh | bash -s YOUR_REPLICATE_TOKEN
    ```
 
 ### Manual Deployment
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/GraniteChatbot.git
+git clone https://github.com/HaryoWaskito/GraniteChatbot.git
 cd GraniteChatbot
 
 # Make deploy script executable
